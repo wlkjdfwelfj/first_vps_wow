@@ -1,0 +1,63 @@
+# این فایل به گیت‌هاب می‌گوید که یک سرور لینوکسی موقت راه‌اندازی کند
+name: ساخت سرور SSH لینوکسی
+
+on:
+  workflow_dispatch:  # یعنی این کار فقط با کلیک دستی من اجرا می‌شود
+
+jobs:
+  build:
+    runs-on: ubuntu-latest  # از جدیدترین نسخه‌ی اوبونتو به عنوان سیستمعامل استفاده کن
+    timeout-minutes: 350   # حداکثر زمان اجرا را ۳۵۰ دقیقه بگذار (کمی کمتر از ۶ ساعت)
+
+    steps:
+      # گام ۱: نصب ابزارهای اولیه روی سرور
+      - name: نصب پیش‌نیازها
+        run: |
+          sudo apt update
+          sudo apt install -y tmate curl net-tools
+
+      # گام ۲: نصب نرم‌افزار تیل‌اسکیل روی سرور
+      - name: نصب تیل‌اسکیل
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+
+      # گام ۳: اجرای تیل‌اسکیل و اتصال سرور به شبکه‌ی من
+      - name: راه‌اندازی تیل‌اسکیل و اتصال به شبکه
+        env:
+          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }} # کلید را از بخش رازهای گیت‌هاب می‌خوانیم
+        run: |
+          sudo tailscaled &  # سرویس تیل‌اسکیل را در پشت‌زمینه اجرا کن
+          sleep 5            # ۵ ثانیه صبر کن تا سرویس کامل بالا بیاید
+          sudo tailscale up --authkey "$TAILSCALE_AUTHKEY" --hostname="github-linux-server"
+
+      # گام ۴: ساختن یک کاربر جدید روی سرور برای اتصال SSH
+      - name: ساخت کاربر جدید
+        run: |
+          # یک کاربر به نام 'linuxuser' بساز
+          sudo useradd -m -s /bin/bash linuxuser || true
+          # رمز عبور این کاربر را 'Linux@2026' قرار بده
+          echo "linuxuser:Linux@2026" | sudo chpasswd
+          # این کاربر را به گروه ادمین‌ها (sudo) اضافه کن
+          sudo usermod -aG sudo linuxuser
+          # به این کاربر اجازه بده بدون نیاز به پسورد، دستورات ادمین را اجرا کند
+          echo "linuxuser ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/linuxuser
+
+      # گام ۵: نمایش اطلاعات اتصال در خروجی (لاگ) گیت‌هاب
+      - name: نمایش اطلاعات اتصال
+        run: |
+          echo "=================================================="
+          echo "  >>> سرور اس‌اس‌اچ آماده است! <<<"
+          echo "  آی‌پی در تیل‌اسکیل: $(tailscale ip -4)"
+          echo "  نام کاربری        : linuxuser"
+          echo "  رمز عبور          : Linux@2026"
+          echo "  >> دستور اتصال: ssh linuxuser@<آی‌پی_تیل‌اسکیل>"
+          echo "=================================================="
+
+      # گام ۶: زنده نگه‌داشتن سرور به مدت ۶ ساعت
+      - name: زنده نگه‌داشتن سرور
+        run: |
+          # این حلقه ۳۵۰ بار (معادل ۳۵۰ دقیقه) اجرا می‌شود و هر بار ۱ دقیقه می‌خوابد
+          for i in {1..350}; do
+            sleep 60
+            echo "[$i/350] سرور در حال اجراست..."
+          done
